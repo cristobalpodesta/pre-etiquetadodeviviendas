@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visor EE — Luján de Cuyo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f13; --surface: #1a1a22; --surface2: #22222e;
+    --border: rgba(255,255,255,0.08); --text: #e8e8f0; --muted: #7a7a8c; --accent: #c8f04a;
+    --A: #1db954; --B: #5bbf3f; --C: #a3c832; --D: #f5c518; --E: #f5922a; --F: #e84141; --G: #b52525;
+    --panel-w: 340px;
+  }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  header { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 1000; }
+  .logo-mark { width: 28px; height: 28px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; color: #0f0f13; flex-shrink: 0; }
+  header h1 { font-size: 13px; font-weight: 500; letter-spacing: 0.03em; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .header-badge { font-size: 10px; font-family: 'DM Mono', monospace; background: rgba(200,240,74,0.12); color: var(--accent); border: 1px solid rgba(200,240,74,0.25); padding: 3px 8px; border-radius: 4px; letter-spacing: 0.05em; }
+  #sync-status { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  #sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+  #sync-dot.ok { background: var(--A); }
+  #sync-dot.error { background: var(--F); }
+  #sync-dot.loading { background: var(--D); animation: pulse-dot 1s infinite; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .config-banner { background: rgba(245,197,24,0.08); border-bottom: 1px solid rgba(245,197,24,0.2); padding: 10px 20px; font-size: 11px; color: #f5c518; display: none; align-items: center; gap: 8px; flex-shrink: 0; }
+  .config-banner code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-family: 'DM Mono', monospace; }
+  .config-banner button { margin-left: auto; background: rgba(200,240,74,0.12); border: 1px solid rgba(200,240,74,0.25); color: var(--accent); font-size: 10px; font-family: 'DM Mono', monospace; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+
+  .main { display: flex; flex: 1; overflow: hidden; }
+  #map { flex: 1; position: relative; }
+  .leaflet-container { background: #111118; }
+
+  #panel { width: var(--panel-w); background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+  .panel-empty { flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px; text-align: center; color: var(--muted); }
+  .panel-empty-icon { width: 48px; height: 48px; border: 1.5px dashed rgba(255,255,255,0.12); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 4px; }
+  .panel-empty p { font-size: 12px; line-height: 1.6; }
+  .panel-content { flex: 1; overflow-y: auto; overflow-x: hidden; display: none; }
+  .panel-content::-webkit-scrollbar { width: 4px; }
+  .panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  .street-view { width: 100%; height: 180px; background: var(--surface2); position: relative; overflow: hidden; }
+  .street-view img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .sv-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
+  .sv-label { position: absolute; bottom: 8px; left: 8px; font-size: 9px; font-family: 'DM Mono', monospace; background: rgba(0,0,0,0.6); color: rgba(255,255,255,0.5); padding: 2px 6px; border-radius: 3px; }
+
+  .label-hero { padding: 20px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--border); }
+  .label-badge { width: 56px; height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 600; color: white; flex-shrink: 0; position: relative; }
+  .label-badge::after { content:''; position:absolute; inset:0; border-radius:12px; background:rgba(255,255,255,0.1); }
+  .label-info h2 { font-size: 15px; font-weight: 500; line-height: 1.3; }
+  .label-info p { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+  .tipo-badge { font-size: 9px; font-family: 'DM Mono', monospace; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.05em; margin-left: 6px; vertical-align: middle; }
+  .tipo-oficial { background: rgba(200,240,74,0.15); color: var(--accent); border: 1px solid rgba(200,240,74,0.3); }
+  .tipo-estimado { background: rgba(245,197,24,0.12); color: #f5c518; border: 1px solid rgba(245,197,24,0.25); }
+
+  .escala-wrap { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .escala-title { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 10px; }
+  .escala { display: flex; gap: 3px; align-items: flex-end; }
+  .escala-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .escala-bar { width: 100%; border-radius: 3px; opacity: 0.35; transition: opacity 0.2s, transform 0.2s; }
+  .escala-bar.active { opacity: 1; transform: scaleY(1.08); transform-origin: bottom; }
+  .escala-letter { font-size: 10px; font-weight: 500; opacity: 0.4; }
+  .escala-letter.active { opacity: 1; }
+
+  .ipe-wrap { padding: 0 20px 16px; border-bottom: 1px solid var(--border); }
+  .ipe-label { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 8px; }
+  .ipe-track { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .ipe-fill { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+  .ipe-values { display: flex; justify-content: space-between; margin-top: 5px; font-size: 9px; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+  .datos { padding: 16px 20px; }
+  .datos-title { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 12px; }
+  .dato-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--border); gap: 12px; }
+  .dato-row:last-child { border-bottom: none; }
+  .dato-key { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+  .dato-val { font-size: 12px; font-weight: 500; text-align: right; font-family: 'DM Mono', monospace; }
+
+  .panel-footer { padding: 12px 20px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .panel-footer a { color: var(--accent); text-decoration: none; }
+
+  .map-legend { position: absolute; bottom: 24px; left: 12px; z-index: 500; background: rgba(15,15,19,0.92); backdrop-filter: blur(8px); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; min-width: 130px; }
+  .legend-title { font-size: 9px; font-family: 'DM Mono', monospace; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 8px; }
+  .legend-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .legend-lbl { font-size: 11px; font-weight: 500; }
+  .legend-desc { font-size: 9px; color: var(--muted); margin-left: auto; }
+
+  .map-notice { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 500; background: rgba(15,15,19,0.92); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; font-size: 12px; color: var(--muted); white-space: nowrap; display: none; }
+
+  .leaflet-popup-content-wrapper { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); color: var(--text); padding: 0; }
+  .leaflet-popup-content { margin: 0; padding: 0; }
+  .leaflet-popup-tip { background: var(--surface2); }
+  .leaflet-popup-close-button { color: var(--muted) !important; right: 8px !important; top: 6px !important; }
+  .popup-inner { padding: 12px 14px; font-family: 'DM Sans', sans-serif; min-width: 160px; }
+  .popup-addr { font-size: 12px; font-weight: 500; }
+  .popup-cat { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .popup-etiq { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 5px; font-size: 13px; font-weight: 600; color: white; float: right; margin-top: -2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">EE</div>
+  <h1>Visor Eficiencia Energética <span>— Luján de Cuyo, Mendoza</span></h1>
+  <div class="header-right">
+    <div id="sync-status"><div id="sync-dot" class="loading"></div><span id="sync-text">Conectando…</span></div>
+    <div class="header-badge">PRONEV</div>
+  </div>
+</header>
+
+<div class="config-banner" id="config-banner">
+  ⚠️ Conectá tu Google Sheet: pegá la URL CSV en la variable <code>SHEET_CSV_URL</code> del código.
+  <button onclick="this.parentElement.style.display='none'">Entendido</button>
+</div>
+
+<div class="main">
+  <div id="map">
+    <div class="map-legend">
+      <div class="legend-title">ETIQUETA IPE</div>
+      <div class="legend-row"><div class="legend-dot" style="background:var(--A)"></div><span class="legend-lbl">A</span><span class="legend-desc">Muy eficiente</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:var(--B)"></div><span class="legend-lbl">B</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:var(--C)"></div><span class="legend-lbl">C</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:var(--D)"></div><span class="legend-lbl">D</span><span class="legend-desc">Media</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:var(--E)"></div><span class="legend-lbl">E</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:var(--F)"></div><span class="legend-lbl">F</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:var(--G)"></div><span class="legend-lbl">G</span><span class="legend-desc">Ineficiente</span></div>
+    </div>
+    <div class="map-notice" id="map-notice">📋 Sheet conectado pero vacío — agregá filas para ver marcadores</div>
+  </div>
+
+  <div id="panel">
+    <div class="panel-empty" id="panel-empty" style="display:flex">
+      <div class="panel-empty-icon">📍</div>
+      <p>Hacé clic sobre cualquier marcador del mapa para ver la etiqueta de eficiencia energética</p>
+    </div>
+    <div class="panel-content" id="panel-content">
+      <div class="street-view" id="sv-container">
+        <div class="sv-placeholder" id="sv-placeholder"><span style="font-size:24px">🏘️</span><span>—</span></div>
+        <div class="sv-label">MAPILLARY</div>
+      </div>
+      <div class="label-hero">
+        <div class="label-badge" id="label-badge">A</div>
+        <div class="label-info">
+          <h2 id="label-direccion">—</h2>
+          <p id="label-desc">—</p>
+        </div>
+      </div>
+      <div class="escala-wrap">
+        <div class="escala-title">ESCALA IPE</div>
+        <div class="escala" id="escala-bars"></div>
+      </div>
+      <div class="ipe-wrap" id="ipe-section">
+        <div class="ipe-label">ÍNDICE DE PRESTACIONES ENERGÉTICAS (kWh/m²·año)</div>
+        <div class="ipe-track"><div class="ipe-fill" id="ipe-fill"></div></div>
+        <div class="ipe-values"><span>0</span><span id="ipe-val-label">—</span><span>400+</span></div>
+      </div>
+      <div class="datos" id="datos-extra"></div>
+      <div class="panel-footer">
+        PRONEV · Res. 5/2023 · <a href="https://etiquetadoviviendas.mecon.gob.ar/" target="_blank">mecon.gob.ar</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  PASO 1 — Pegá acá la URL de tu Google Sheet exportado como CSV
+//
+//  Cómo obtenerla:
+//  1. Abrí tu Google Sheet
+//  2. Archivo → Compartir → Publicar en la web
+//  3. Elegí "Hoja 1" y formato "Valores separados por comas (.csv)"
+//  4. Copiá la URL que aparece y pegala abajo
+//
+const SHEET_CSV_URL = '';
+//  Ejemplo:
+//  const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-.../pub?output=csv';
+//
+// ══════════════════════════════════════════════════════════════
+//
+//  ESTRUCTURA DEL SHEET (columnas en este orden exacto):
+//
+//  A: direccion       → "Dorrego 420"          (OBLIGATORIO)
+//  B: latitud         → -33.0370               (OBLIGATORIO)
+//  C: longitud        → -68.8840               (OBLIGATORIO)
+//  D: etiqueta        → A / B / C / D / E / F / G  (OBLIGATORIO)
+//  E: ipe             → 145   (kWh/m²·año, dejar vacío si no se sabe)
+//  F: tipo            → "Unifamiliar" / "Departamento" / etc.
+//  G: superficie      → "112 m²"
+//  H: anio            → 1998
+//  I: calefaccion     → "Gas natural"
+//  J: certificado     → "CEE-2024-0841"
+//  K: vencimiento     → 2034
+//  L: oficial         → si / no  (si tiene certificado oficial PRONEV)
+//  M: notas           → texto libre (opcional)
+//
+//  La primera fila debe ser el encabezado (puede tener cualquier texto).
+//  Las columnas E en adelante son opcionales — pueden estar vacías.
+//
+// ══════════════════════════════════════════════════════════════
+
+const COLORS = {
+  A:'#1db954', B:'#5bbf3f', C:'#a3c832',
+  D:'#f5c518', E:'#f5922a', F:'#e84141', G:'#b52525'
+};
+const LABEL_DESC = {
+  A:'Muy alta eficiencia — consumo mínimo de energía primaria',
+  B:'Alta eficiencia — muy por debajo de la media regional',
+  C:'Buena eficiencia — por debajo de la media regional',
+  D:'Eficiencia media — levemente mejor que el promedio',
+  E:'Eficiencia media-baja — consumo promedio regional',
+  F:'Baja eficiencia — consume por encima de la media',
+  G:'Muy baja eficiencia — requiere mejoras urgentes'
+};
+
+const map = L.map('map', { center:[-33.038,-68.885], zoom:14 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution:'© OpenStreetMap © CARTO', maxZoom:19
+}).addTo(map);
+const markersLayer = L.layerGroup().addTo(map);
+
+// ── CARGA PRINCIPAL ──
+async function loadSheet() {
+  setSyncState('loading','Cargando datos…');
+
+  if (!SHEET_CSV_URL) {
+    document.getElementById('config-banner').style.display = 'flex';
+    setSyncState('error','Sin Sheet — usando demo');
+    renderMarkers(DEMO_DATA);
+    return;
+  }
+
+  try {
+    const res = await fetch(SHEET_CSV_URL);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const csv = await res.text();
+    const parcelas = parseCSV(csv);
+
+    if (parcelas.length === 0) {
+      setSyncState('ok','Sheet vacío');
+      document.getElementById('map-notice').style.display = 'block';
+      return;
+    }
+
+    renderMarkers(parcelas);
+    setSyncState('ok', parcelas.length + ' parcelas · Sheet');
+  } catch(e) {
+    console.error(e);
+    setSyncState('error','Error Sheet — usando demo');
+    document.getElementById('config-banner').style.display = 'flex';
+    renderMarkers(DEMO_DATA);
+  }
+}
+
+// ── PARSER CSV ──
+function parseCSV(text) {
+  const lines = text.trim().split('\n').slice(1); // saltar encabezado
+  const parcelas = [];
+  lines.forEach(line => {
+    if (!line.trim()) return;
+    // Split respetando campos entre comillas
+    const cols = [];
+    let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    cols.push(cur.trim());
+
+    const dir = cols[0] || '';
+    const lat = parseFloat(cols[1]);
+    const lng = parseFloat(cols[2]);
+    const etq = (cols[3] || '').trim().toUpperCase();
+
+    if (!dir || isNaN(lat) || isNaN(lng) || !COLORS[etq]) return;
+
+    const ipeRaw = parseFloat(cols[4]);
+    parcelas.push({
+      direccion:   dir,
+      lat, lng,
+      etiqueta:    etq,
+      ipe:         isNaN(ipeRaw) ? null : ipeRaw,
+      tipo:        cols[5] || '',
+      superficie:  cols[6] || '',
+      anio:        cols[7] || '',
+      calefaccion: cols[8] || '',
+      certificado: cols[9] || '',
+      vencimiento: cols[10] || '',
+      oficial:     /^s[ií]/i.test(cols[11] || ''),
+      notas:       cols[12] || ''
+    });
+  });
+  return parcelas;
+}
+
+// ── MARCADORES ──
+function renderMarkers(parcelas) {
+  markersLayer.clearLayers();
+  parcelas.forEach(p => {
+    const color = COLORS[p.etiqueta];
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="width:30px;height:30px;background:${color};border-radius:8px 8px 8px 2px;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:white;box-shadow:0 3px 10px rgba(0,0,0,0.5);border:1.5px solid rgba(255,255,255,0.2)">${p.etiqueta}</div>`,
+      iconSize:[30,30], iconAnchor:[15,28], popupAnchor:[0,-30]
+    });
+    const marker = L.marker([p.lat,p.lng],{icon}).addTo(markersLayer);
+    marker.bindPopup(L.popup({closeButton:false,offset:[0,-20]}).setContent(
+      `<div class="popup-inner"><div class="popup-etiq" style="background:${color}">${p.etiqueta}</div><div class="popup-addr">${p.direccion}</div><div class="popup-cat">${p.tipo || 'Vivienda'}</div></div>`
+    ));
+    marker.on('click', () => { showPanel(p); map.setView([p.lat-0.001,p.lng],17,{animate:true}); });
+  });
+}
+
+// ── PANEL ──
+function showPanel(p) {
+  document.getElementById('panel-empty').style.display = 'none';
+  const c = document.getElementById('panel-content');
+  c.style.display = 'block';
+  c.style.animation = 'none'; c.offsetHeight; c.style.animation = 'slideIn 0.25s ease';
+
+  const badge = document.getElementById('label-badge');
+  badge.textContent = p.etiqueta;
+  badge.style.background = COLORS[p.etiqueta];
+
+  document.getElementById('label-direccion').innerHTML =
+    p.direccion + `<span class="tipo-badge ${p.oficial?'tipo-oficial':'tipo-estimado'}">${p.oficial?'OFICIAL':'ESTIMADO'}</span>`;
+  document.getElementById('label-desc').textContent = LABEL_DESC[p.etiqueta];
+
+  buildEscala(p.etiqueta);
+
+  const ipeEl = document.getElementById('ipe-section');
+  if (p.ipe !== null) {
+    ipeEl.style.display = 'block';
+    document.getElementById('ipe-fill').style.cssText = `width:${Math.min((p.ipe/400)*100,100)}%;background:${COLORS[p.etiqueta]}`;
+    document.getElementById('ipe-val-label').textContent = p.ipe + ' kWh/m²·año';
+  } else { ipeEl.style.display = 'none'; }
+
+  const campos = [
+    ['Tipo', p.tipo], ['Sup. cubierta', p.superficie], ['Año const.', p.anio],
+    ['Calefacción', p.calefaccion], ['Certificado', p.certificado], ['Vencimiento', p.vencimiento]
+  ].filter(([,v]) => v && v !== '—' && v !== '');
+
+  document.getElementById('datos-extra').innerHTML =
+    (campos.length ? '<div class="datos-title">CARACTERÍSTICAS</div>' : '') +
+    campos.map(([k,v]) => `<div class="dato-row"><span class="dato-key">${k}</span><span class="dato-val">${v}</span></div>`).join('') +
+    (p.notas ? `<div class="dato-row" style="flex-direction:column;gap:4px"><span class="dato-key">Notas</span><span style="font-size:11px;color:var(--muted);margin-top:2px">${p.notas}</span></div>` : '');
+
+  loadStreetView(p.lat, p.lng);
+}
+
+function buildEscala(activa) {
+  const letras=['A','B','C','D','E','F','G'], alts=[24,28,32,36,40,44,48];
+  const cont = document.getElementById('escala-bars');
+  cont.innerHTML = '';
+  letras.forEach((l,i) => {
+    const item = document.createElement('div'); item.className='escala-item';
+    const bar = document.createElement('div');
+    bar.className='escala-bar'+(l===activa?' active':'');
+    bar.style.cssText=`height:${alts[i]}px;background:${COLORS[l]}`;
+    const lbl = document.createElement('span');
+    lbl.className='escala-letter'+(l===activa?' active':'');
+    lbl.textContent=l; lbl.style.color=COLORS[l];
+    item.appendChild(bar); item.appendChild(lbl); cont.appendChild(item);
+  });
+}
+
+// ── MAPILLARY ──
+async function loadStreetView(lat,lng) {
+  const cont = document.getElementById('sv-container');
+  const ph = document.getElementById('sv-placeholder');
+  const prev = cont.querySelector('img'); if(prev) prev.remove();
+  ph.style.display='flex';
+  ph.innerHTML='<span style="font-size:24px">⏳</span><span>Buscando imagen…</span>';
+  try {
+    const token='MLY|4381404585301860|0b4a54bfdcfd5eb63c6c60bc749e91c0';
+    const r = await fetch(`https://graph.mapillary.com/images?access_token=${token}&fields=id,thumb_1024_url&bbox=${lng-0.001},${lat-0.001},${lng+0.001},${lat+0.001}&limit=5`);
+    const d = await r.json();
+    if (d.data && d.data.length) {
+      const img=document.createElement('img'); img.src=d.data[0].thumb_1024_url; img.alt='Vista de calle';
+      img.onload=()=>{ ph.style.display='none'; };
+      img.onerror=()=>{ ph.innerHTML='<span style="font-size:24px">🏘️</span><span>Sin imagen disponible</span>'; };
+      cont.insertBefore(img,ph);
+    } else { ph.innerHTML='<span style="font-size:24px">🏘️</span><span>Sin imágenes en Mapillary</span>'; }
+  } catch { ph.innerHTML='<span style="font-size:24px">🏘️</span><span>Vista de calle no disponible</span>'; }
+}
+
+function setSyncState(state,text) {
+  document.getElementById('sync-dot').className=state;
+  document.getElementById('sync-text').textContent=text;
+}
+
+// ── DATOS DEMO (se usan cuando no hay Sheet configurado) ──
+const DEMO_DATA = [
+  {lat:-33.0370,lng:-68.8840,direccion:'Dorrego 420',etiqueta:'C',ipe:145,tipo:'Unifamiliar',superficie:'112 m²',anio:'1998',calefaccion:'Gas natural',certificado:'CEE-2024-0841',vencimiento:'2034',oficial:true,notas:''},
+  {lat:-33.0355,lng:-68.8820,direccion:'San Martín 1150',etiqueta:'A',ipe:52,tipo:'Vivienda pasiva',superficie:'140 m²',anio:'2022',calefaccion:'Bomba de calor',certificado:'CEE-2023-0312',vencimiento:'2033',oficial:true,notas:''},
+  {lat:-33.0400,lng:-68.8875,direccion:'Viamonte 335',etiqueta:'G',ipe:390,tipo:'Unifamiliar',superficie:'65 m²',anio:'1962',calefaccion:'Leña',certificado:'',vencimiento:'',oficial:false,notas:'Requiere intervención urgente'},
+  {lat:-33.0362,lng:-68.8855,direccion:'Belgrano 240',etiqueta:'B',ipe:88,tipo:'Bifamiliar',superficie:'195 m²',anio:'2015',calefaccion:'Gas + solar',certificado:'CEE-2022-1105',vencimiento:'2032',oficial:true,notas:''},
+  {lat:-33.0390,lng:-68.8830,direccion:'Rivadavia 590',etiqueta:'D',ipe:185,tipo:'Departamento',superficie:'74 m²',anio:'2005',calefaccion:'Gas natural',certificado:'CEE-2024-0227',vencimiento:'2034',oficial:true,notas:''},
+  {lat:-33.0375,lng:-68.8808,direccion:'Italia 44',etiqueta:'F',ipe:295,tipo:'Unifamiliar',superficie:'102 m²',anio:'1985',calefaccion:'Gas natural',certificado:'',vencimiento:'',oficial:false,notas:''},
+];
+
+loadSheet();
+</script>
+</body>
+</html>
